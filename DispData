@@ -1,0 +1,9 @@
+---
+- name: Display APF list
+  hosts: all
+  gather_facts: no
+  tasks:
+    - name: Display APF list using z/OS operator command
+      ibm.ibm_zos_core.zos_operator:
+        cmd: "D PROG,APF"
+        verbose: true
