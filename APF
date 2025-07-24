@@ -1,0 +1,15 @@
+- name: Add dataset to APF list
+  hosts: zos
+  gather_facts: no
+  collections:
+    - ibm.ibm_zos_core
+
+  tasks:
+    - name: Add dataset to APF
+      ibm.ibm_zos_core.zos_operator:
+        cmd: 'SET PROG=APF,ADD,DSN=YOUR.DATASET.NAME,VOL=YOURVOLUME'
+      register: apf_result
+
+    - name: Show APF command result
+      debug:
+        var: apf_result
