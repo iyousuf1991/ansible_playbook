@@ -1,0 +1,65 @@
+---
+- name: z/OS End-to-End Automation Demo
+  hosts: zos
+  gather_facts: no
+  collections:
+    - ibm.ibm_zos_core
+
+  vars:
+    dataset_name: "YOUSUF.ANSIBLE.DEMO"
+    jcl_local_path: "./sample_job.jcl"
+    jcl_dataset: "YOUSUF.ANSIBLE.JCL"
+    job_output_dir: "./job_output"
+
+  tasks:
+
+    - name: Ensure demo output directory exists
+      ansible.builtin.file:
+        path: "{{ job_output_dir }}"
+        state: directory
+      delegate_to: localhost
+
+    - name: Create a sequential dataset
+      ibm.ibm_zos_core.zos_data_set:
+        name: "{{ dataset_name }}"
+        type: seq
+        size: 5
+        state: present
+
+    - name: Upload local file to sequential dataset
+      ibm.ibm_zos_core.zos_copy:
+        src: ./demo_input.txt
+        dest: "{{ dataset_name }}"
+        remote_src: false
+        force: true
+
+    - name: Upload JCL to PDS member
+      ibm.ibm_zos_core.zos_copy:
+        src: "{{ jcl_local_path }}"
+        dest: "{{ jcl_dataset }}(DEMOJOB)"
+        remote_src: false
+        force: true
+
+    - name: Submit JCL on z/OS
+      ibm.ibm_zos_core.zos_job_submit:
+        src: "{{ jcl_dataset }}(DEMOJOB)"
+        location: DATA_SET
+      register: job_submit
+
+    - name: Wait for job completion and fetch output
+      ibm.ibm_zos_core.zos_job_output:
+        job_id: "{{ job_submit.job_id }}"
+        dest: "{{ job_output_dir }}"
+        location: LOCAL
+      delegate_to: localhost
+
+    - name: Delete the demo dataset
+      ibm.ibm_zos_core.zos_data_set:
+        name: "{{ dataset_name }}"
+        state: absent
+
+    - name: Delete the JCL dataset
+      ibm.ibm_zos_core.zos_data_set:
+        name: "{{ jcl_dataset }}"
+        state: absent
+
