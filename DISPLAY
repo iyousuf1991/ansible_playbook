@@ -1,0 +1,9 @@
+- name: Display APF list
+  ibm.ibm_zos_core.zos_operator:
+    cmd: 'D PROG,APF'
+  register: apf_display
+
+- name: Display Linklist
+  ibm.ibm_zos_core.zos_operator:
+    cmd: 'D PROG,LNKLST'
+  register: linklist_display
