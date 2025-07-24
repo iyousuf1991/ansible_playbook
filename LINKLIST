@@ -1,0 +1,15 @@
+- name: Add dataset to Linklist
+  hosts: zos
+  gather_facts: no
+  collections:
+    - ibm.ibm_zos_core
+
+  tasks:
+    - name: Add dataset to Linklist
+      ibm.ibm_zos_core.zos_operator:
+        cmd: 'SET PROG=LNKLST,ADD,DSN=YOUR.DATASET.NAME,VOL=YOURVOLUME'
+      register: linklist_result
+
+    - name: Show Linklist command result
+      debug:
+        var: linklist_result
