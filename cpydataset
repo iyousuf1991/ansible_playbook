@@ -1,0 +1,13 @@
+- name: Copy a sequential dataset on z/OS
+  hosts: zos
+  gather_facts: no
+  collections:
+    - ibm.ibm_zos_core
+
+  tasks:
+    - name: Copy dataset from HLQ.SOURCE.DATA to HLQ.TARGET.DATA
+      ibm.ibm_zos_core.zos_copy:
+        src: HLQ.SOURCE.DATA
+        dest: HLQ.TARGET.DATA
+        remote_src: true
+        force: true
