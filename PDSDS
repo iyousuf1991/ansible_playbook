@@ -1,0 +1,6 @@
+    - name: Copy a member from one PDS to another
+      ibm.ibm_zos_core.zos_copy:
+        src: HLQ.SOURCE.PDS(MEMBER1)
+        dest: HLQ.TARGET.PDS(MEMBER1)
+        remote_src: true
+        force: true
