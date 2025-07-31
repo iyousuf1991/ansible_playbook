@@ -1,0 +1,286 @@
+/****************************** REXX *********************************/
+/* DESCRIPTION                                                       */
+/*-------------------------------------------------------------------*/
+/*                                                                   */
+/* THE THRDTERM EXEC WILL PARSE THROUGH THE OUTPUT FROM A DISPLAY DB */
+/* COMMAND AND FORMAT CANCEL THREAD COMMANDS. A WTO WITH THE COMMAND */
+/* WILL BE ISSUED AND AOPER WILL PICK UP THE COMMAND AND ISSUE IT ON */
+/* THE APPROPRIATE SYSTEM.                                           */
+/*                                                                   */
+/* THE FORMAT OF THE COMMAND ISSUED BY THE WTO IS A FOLLOWS          */
+/*                                                                   */
+/*   MSS0001.ssss.-DBxxCANCEL THREAD(ttttt)                          */
+/*                                                                   */
+/*   MSS0001       - MESSAGE ID                                      */
+/*   ssss          - THE z/OS SYSTEM THE THREAD IS ON                */
+/*   -DBxx         - THE RECOGNITION CHARACTER FOR THE ACTIVE THRD.  */
+/*   CANCEL THERAD - CANCEL THREAD COMMAND                           */
+/*   (ttttt)       - THREAD TOKEN                                    */
+/*                                                                   */
+/*-------------------------------------------------------------------*/
+/* EXECUTION JCL                                                     */
+/*-------------------------------------------------------------------*/
+/* The jcl to execute this exec is:                                  */
+/*                                                                   */
+/* --STEP1    EXEC PGM=IKJEFT01,PARM=THRDTERM                        */
+/* --*                                                               */
+/* --SYSPRINT DD   SYSOUT=*                                          */
+/* --*                                                               */
+/* --*------------------------------------------------------------   */
+/* --* ENTER THE DB2 DISPLAY COMMAND. TERMINATE THE LINE WITH A ;    */
+/* --*------------------------------------------------------------   */
+/* --SYSTSIN  DD   *                                                 */
+/* DB2P-DIS DB(XXXXXXXX) SPACENAM(*) CLAIMERS LIMIT(*) ;             */
+/* --*                                                               */
+/* --SYSTSPRT DD   SYSOUT=*                                          */
+/* --*                                                               */
+/* --*------------------------------------------------------------   */
+/* --* THE CANCMD DD SHOWS THE CANCEL COMMAND(S) THAT WERE ISSUED    */
+/* --*------------------------------------------------------------   */
+/* --CANCMD   DD   SYSOUT=*                                          */
+/* --*                                                               */
+/* --*------------------------------------------------------------   */
+/* --* The CANRPT DD IS A CANCEL THREAD REPORT                       */
+/* --*------------------------------------------------------------   */
+/* --CANRPT   DD   SYSOUT=*                                          */
+/* --*                                                               */
+/* --SYSEXEC  DD   DSN=DB2.PROD.DB2P.SYSEXEC.MOD,DISP=SHR            */
+/* --                                                                */
+/*********************************************************************/
+/*                            CHANGE LOG                             */
+/* DATE             DESCRIPTION                                      */
+/* --------   ---   ------------------------------------------------ */
+/* 05/19/25   CAP   Updated the SERVER section to correctly parse    */
+/*                  the display command output for SERVER threads    */
+/*                  Original EXEC - DB2.PROD.DB2P.SYSEXEC.MOD        */
+/*                                  Member: THRDTER#                 */
+/*********************************************************************/
+ /*  trace i  */
+ blk1       = ' '
+ blk3       = '   '
+ blk4       = '    '
+ blk5       = '     '
+ retline.   = ''
+ cmdline.   = ''
+ caninfo.   = ''
+ semi       = ';'
+ cmd_ctr    = 0
+ rpt_ctr    = 2
+ eof        = 'N'
+ N          = 'N'
+ Y          = 'Y'
+ server_sw  = 'N'
+ tblspace   = ''
+ part       = ''
+ connid     = ''
+ corrid     = ''
+ token      = ''
+ save_token = ''
+ ssid       = ''
+ luwid      = ''
+
+
+ caninfo.1 = ' TABLESPACE   PART   CONNID     CORRID         TOKEN'  ,
+             || '      SSID    LUWID'
+
+ caninfo.2 = ' ----------   -----  --------   ------------' ||       ,
+             '   --------   -----   ------------------------------'
+
+ /*******************************************************************/
+ /*                         priming read                            */
+ /*******************************************************************/
+
+ PARSE EXTERNAL input
+
+ /*******************************************************************/
+ /*                           MAINLINE                              */
+ /*******************************************************************/
+ DO WHILE (eof = N)
+
+   db2ssid = SUBSTR(input,1,4)
+
+   num = POS(semi,input)    /* find position of semicolon */
+   num = num - 5            /* get the length of the command */
+
+   command = SUBSTR(input,5,num)  /* get the command */
+
+ /*-----------------------------------------------------------------*/
+ /* OUTTTRAP command:                                               */
+ /*    retline. - variable to hold output of the command            */
+ /*    *        - number of lines to trap, asterisk is the max      */
+ /*    noconcat - how the output should be trapped                  */
+ /*-----------------------------------------------------------------*/
+
+   x = OUTTRAP("retline.",'*',"noconcat")
+
+   QUEUE command             /* put the command on the stack - FIFO */
+   QUEUE 'END'               /* end the db2 display command         */
+   'DSN S('db2ssid')'        /* issue the command                   */
+   y = OUTTRAP("off")        /* turn OUTTRAP off                    */
+
+   DO i = 1 to retline.0     /* parse through command output        */
+      lineout = retline.i
+
+   SAY 'lineout = ' lineout  /* write the line from the disply DB   */
+                             /* command to the SYSTSPRT DD          */
+
+ /*******************************************************************/
+ /* The following 4 IF statements have been added to collect doc    */
+ /* for a problem encontered by job PRMPB061                        */
+ /*******************************************************************/
+
+/* IF POS('DB2629A',lineout) > 0 THEN              added for debug */
+/*    TRACE i                                                      */
+
+/* IF POS('DB2629A  ENDED',lineout) > 0 THEN       added for debug */
+/*    TRACE OFF                                                    */
+
+/* IF POS('DB2602A',lineout) > 0 THEN              added for debug */
+/*    TRACE i                                                      */
+
+/* IF POS('DB2602A  ENDED',lineout) > 0 THEN       added for debug */
+/*    TRACE OFF                                                    */
+
+
+   /* check to see if we have a table space to process    */
+
+      SELECT
+         WHEN SUBSTR(lineout,10,2) = 'TS' THEN DO
+            tblspace = STRIP(SUBSTR(lineout,1,8),T)
+            part     = STRIP(SUBSTR(lineout,16,5),L)
+            connid   = STRIP(SUBSTR(lineout,39,8),T)
+            corrid   = STRIP(SUBSTR(lineout,48,14),T)
+
+            IF connid = 'SERVER' THEN
+               server_sw = Y
+
+         END
+         WHEN WORDPOS('MEMBER',lineout) > 0 THEN DO
+            mempos = POS('MEMBER',lineout)  /* find pos of TOKEN */
+
+            mempos = mempos + 12    /* get pos where ssid starts  */
+
+            ssid  = SUBSTR(lineout,mempos,4) /* get token */
+         END
+         WHEN connid = 'SERVER' THEN DO
+            tokpos = POS('TOKEN',lineout)     /* find pos of TOKEN */
+
+            tokpos = tokpos + 6      /* get pos where token starts */
+
+            token = STRIP(SUBSTR(lineout,tokpos,8),T) /* get token */
+
+            i = i + 1                /* increment i to get the next*/
+            lineout = retline.i      /* command line from OUTTRAP  */
+
+            luwid = STRIP(SUBSTR(lineout,1,35),L)
+
+            eqpos = POS('=',luwid)
+
+            luwid = SUBSTR(luwid,1,eqpos-1)
+
+            server_sw = N
+         END
+         WHEN WORDPOS('TOKEN',lineout) > 0 THEN DO
+            tokpos = POS('TOKEN',lineout)   /* find pos of TOKEN */
+
+            tokpos = tokpos + 6     /* get pos where token num starts */
+
+            token = STRIP(SUBSTR(lineout,tokpos,8),T)  /* get token */
+         END
+         OTHERWISE NOP
+      END
+
+      SELECT
+         WHEN(ssid = 'DB2P') THEN mvs = 'MSS0001.CPUC.'
+         WHEN(ssid = 'DBP2') THEN mvs = 'MSS0001.IPO1.'
+         WHEN(ssid = 'DBP3') THEN mvs = 'MSS0001.SYSE.'
+         WHEN(ssid = 'DBP4') THEN mvs = 'MSS0001.A390.'
+         WHEN(ssid = 'DBP5') THEN mvs = 'MSS0001.CPUA.'
+         WHEN(ssid = 'DBP6') THEN mvs = 'MSS0001.SYSE.'
+         WHEN(ssid = 'DB2T') THEN mvs = 'MSS0001.SYSF.'
+         WHEN(ssid = 'DBT2') THEN mvs = 'MSS0001.B390.'
+         WHEN(ssid = 'DBT3') THEN mvs = 'MSS0001.IPOT.'
+         OTHERWISE NOP
+      END
+
+
+   /* build the cancel thread command                     */
+
+      IF SUBSTR(token,1,1) ^= blk1 & SUBSTR(ssid,1,1) ^= blk1 THEN DO
+
+         IF server_sw = N THEN DO
+
+          IF token ^= save_token THEN DO
+
+            cmd_ctr = cmd_ctr + 1
+            rpt_ctr = rpt_ctr + 1
+            cmdline.cmd_ctr = mvs || '-' || ssid ||                   ,
+                              'CANCEL THREAD(' || token || ')'
+
+            caninfo.rpt_ctr = blk1 || LEFT(tblspace,8,blk1) || blk5
+
+            caninfo.rpt_ctr = caninfo.rpt_ctr || RIGHT(part,5,blk1)   ,
+                              || blk3
+
+            caninfo.rpt_ctr = caninfo.rpt_ctr || LEFT(connid,8,blk1)  ,
+                              || blk3
+
+            caninfo.rpt_ctr = caninfo.rpt_ctr || LEFT(corrid,12,blk1) ,
+                              || blk3
+
+            caninfo.rpt_ctr = caninfo.rpt_ctr || LEFT(token,8,blk1)   ,
+                              || blk3
+
+            caninfo.rpt_ctr = caninfo.rpt_ctr || ssid || blk4
+
+            caninfo.rpt_ctr = caninfo.rpt_ctr || LEFT(luwid,30,blk1)
+
+            save_token = token
+
+          END
+
+            tblspace   = ''
+            part       = ''
+            connid     = ''
+            corrid     = ''
+            token      = ''
+            ssid       = ''
+            luwid      = ''
+         END
+
+      END
+
+   END /* end do i = 1 to retline  */
+
+   PARSE EXTERNAL input
+
+   IF input = '' THEN
+      eof = Y
+
+ END   /* end do while */
+
+ "EXECIO * DISKW cancmd (STEM cmdline. FINIS)"
+
+
+ "EXECIO * DISKW canrpt (STEM caninfo. FINIS)"
+
+ SAY 'cmd_ctr = ' cmd_ctr
+
+
+ DO c = 1 to cmd_ctr
+
+    wtoparm = "'" || cmdline.c || "'"
+
+    "ALLOC F(SYSPRINT) SYSOUT RECFM(F B) LRECL(80) BLKSIZE(800) REUSE"
+
+    "ALLOC F(SYSIN) DUMMY BLKSIZE(80) REUSE"
+
+
+    ADDRESS TSO "CALL *(WTOONLY)" wtoparm
+
+    "FREE F(SYSPRINT)"
+    "FREE F(SYSIN)"
+
+ END
+
+ EXIT
