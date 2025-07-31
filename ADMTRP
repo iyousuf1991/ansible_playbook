@@ -1,0 +1,34 @@
+/*                            CHANGE LOG                             */
+/* DATE             DESCRIPTION                                      */
+/* --------   ---   ------------------------------------------------ */
+/* 05/19/25   CAP   Updated the SERVER section to correctly parse    */
+/*                  the display command output for SERVER threads    */
+/*                  Original EXEC - DB2.PROD.DB2P.SYSEXEC.MOD        */
+/*                                  Member: THRDTER#                 */
+/* 07/31/25   GRO   Added check for eqpos > 0 before SUBSTR on LUWID */
+/*                  to prevent invalid substring length error when  */
+/*                  '=' is not found (e.g., malformed output).       */
+
+
+
+            WHEN connid = 'SERVER' THEN DO
+               tokpos = POS('TOKEN',lineout)     /* find pos of TOKEN */
+
+               tokpos = tokpos + 6      /* get pos where token starts */
+
+               token = STRIP(SUBSTR(lineout,tokpos,8),T) /* get token */
+
+               i = i + 1                /* increment i to get the next*/
+               lineout = retline.i      /* command line from OUTTRAP  */
+
+               luwid = STRIP(SUBSTR(lineout,1,35),L)
+
+               eqpos = POS('=',luwid)
+
+               if eqpos = 0 then
+                 luwid = '' /* Warning: Invalid LUWID format */
+               else
+                 luwid = SUBSTR(luwid,1,eqpos-1)
+
+               server_sw = N
+            END
